@@ -14,9 +14,9 @@ use gtk::{
     Box,
     Orientation,
     Align,
-    glib::GString,
-    Entry,
+    FileDialog,
 };
+use gio::File;
 use chrono::{Local, SecondsFormat};
 
 use wlshot::CaptureType;
@@ -58,7 +58,7 @@ fn screen_01(window: Rc<ApplicationWindow>, config: Rc<Config>) {
     vbox.append(&hbox_capture_types);
 
 
-    // ok and cancel button
+    // ok button
     let hbox_buttons = Box::new(Orientation::Horizontal, 30);
     hbox_buttons.set_halign(Align::End);
     let ok_button = Button::builder()
@@ -68,16 +68,21 @@ fn screen_01(window: Rc<ApplicationWindow>, config: Rc<Config>) {
         .margin_start(12)
         .margin_end(12)
         .build();
-    let wclone = Rc::clone(&window);
+    let window_ref = Rc::clone(&window);
     ok_button.connect_clicked(move |_| {
         let tmp_file = get_tmp_file();
+        let default_dir = config.output_dir.clone();
         if region.is_active() {
-            wlshot::capture(CaptureType::Region, tmp_file);
-            screen_02(Rc::clone(&wclone), Rc::clone(&config));
+            wlshot::capture(CaptureType::Region, tmp_file.clone());
         } else {
-            wlshot::capture(CaptureType::Fullscreen, tmp_file);
-            screen_02(Rc::clone(&wclone), Rc::clone(&config));
+            wlshot::capture(CaptureType::Fullscreen, tmp_file.clone());
         }
+        save_dialog(
+            tmp_file.clone(),
+            default_dir,
+            default_filename(),
+            Rc::clone(&window_ref)
+        );
     });
     hbox_buttons.append(&ok_button);
     vbox.append(&hbox_buttons);
@@ -85,52 +90,36 @@ fn screen_01(window: Rc<ApplicationWindow>, config: Rc<Config>) {
 }
 
 
-fn screen_02(window: Rc<ApplicationWindow>, config: Rc<Config>) {
-    // display image
-    let vbox = Box::new(Orientation::Vertical, 30);
-    let tmp_file = get_tmp_file();
-    let image = gtk::Picture::for_filename(tmp_file);
-    vbox.append(&image);
-
-    let mut default_dir = config.output_dir.clone();
-    default_dir.push(default_filename());
-    let file_entry = Entry::builder()
-        .text(GString::from_string_unchecked(
-                default_dir.to_str().unwrap().to_string()))
+fn save_dialog(
+    tmp_file: PathBuf, 
+    initial_dir: PathBuf, 
+    initial_file: String,
+    window: Rc<ApplicationWindow>) {
+    let dir = File::for_path(initial_dir);
+    let file_dialog = FileDialog::builder()
+        .initial_folder(&dir)
+        .initial_name(initial_file)
         .build();
-    vbox.append(&file_entry);
-
-    let hbox_buttons = Box::new(Orientation::Horizontal, 30);
-    hbox_buttons.set_halign(Align::End);
-    vbox.append(&hbox_buttons);
-
-    let save_button = Button::builder()
-        .label("Save")
-        .margin_top(12)
-        .margin_bottom(12)
-        .margin_start(12)
-        .margin_end(12)
-        .build();
-
-    hbox_buttons.append(&save_button);
-    let window_ref = Rc::clone(&window);
-    save_button.connect_clicked(move |_| {
-        let file_path = PathBuf::from(file_entry.text());
-        if let Some(p) = file_path.parent() {
-            if p.is_dir() {
-                let tmp_file = get_tmp_file();
-                fs::copy(tmp_file, file_path)
-                    .expect("could not copy temporary file");
-                window_ref.close();
-            } else {
-                // TODO warn
+    file_dialog.save(
+        None::<&ApplicationWindow>,
+        None::<&gio::Cancellable>,
+        move |c| {
+            match c {
+                Ok(file) => {
+                    if let Some(p) = file.path() {
+                        fs::copy(tmp_file, p)
+                            .expect("Unable to copy temporary file");
+                    }
+                    window.close();
+                }
+                Err(e) => {
+                    eprintln!("{e}");
+                }
             }
-        } else {
-            // TODO warn
         }
-    });
-    window.set_child(Some(&vbox));
+    );
 }
+
 
 fn default_filename() -> String {
     let now = Local::now().to_rfc3339_opts(SecondsFormat::Secs, true);

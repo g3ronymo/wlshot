@@ -30,7 +30,7 @@ impl Config {
         let progname = PathBuf::from(arg1);
         let progname = progname.file_name()
             .expect("Unable to get executable name");
-        let base_directories = xdg::BaseDirectories::with_prefix(&progname)
+        let base_directories = xdg::BaseDirectories::with_prefix(progname)
             .expect("Unable to find base directories");
 
         let mut config_file = progname.to_os_string();
